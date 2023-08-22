@@ -2725,6 +2725,7 @@ local metamethod_names = {
    ["__pairs"] = true,
    ["__gc"] = true,
    ["__close"] = true,
+   ["__is"] = true,
 }
 
 local function parse_macroexp(ps, i)
@@ -4660,6 +4661,7 @@ local binop_to_metamethod = {
    ["<"] = "__lt",
    ["<="] = "__le",
    ["@index"] = "__index",
+   ["is"] = "__is",
 }
 
 local function is_unknown(t)
