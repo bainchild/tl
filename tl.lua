@@ -5914,28 +5914,42 @@ tl.type_check = function(ast, opts)
 
 
       local n_table_types = 0
+      local n_table_is_types = 0
       local n_function_types = 0
       local n_userdata_types = 0
+      local n_userdata_is_types = 0
       local n_string_enum = 0
       local has_primitive_string_type = false
       for _, t in ipairs(typ.types) do
          local ut, rt = union_type(t)
          if ut == "userdata" then
             if rt.meta_fields and rt.meta_fields["__is"] then
-
+               n_userdata_is_types = n_userdata_is_types + 1
+               if n_userdata_types > 0 then
+                  return false, "cannot mix userdata types with and without __is metamethod: %s"
+               end
             else
                n_userdata_types = n_userdata_types + 1
                if n_userdata_types > 1 then
                   return false, "cannot discriminate a union between multiple userdata types: %s"
                end
+               if n_userdata_is_types > 0 then
+                  return false, "cannot mix userdata types with and without __is metamethod: %s"
+               end
             end
          elseif ut == "table" then
             if rt.meta_fields and rt.meta_fields["__is"] then
-
+               n_table_is_types = n_table_is_types + 1
+               if n_table_types > 0 then
+                  return false, "cannot mix table types with and without __is metamethod: %s"
+               end
             else
                n_table_types = n_table_types + 1
                if n_table_types > 1 then
                   return false, "cannot discriminate a union between multiple table types: %s"
+               end
+               if n_table_is_types > 0 then
+                  return false, "cannot mix table types with and without __is metamethod: %s"
                end
             end
          elseif ut == "function" then
