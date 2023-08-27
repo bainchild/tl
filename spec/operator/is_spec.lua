@@ -500,6 +500,34 @@ end]]))
          { msg = "cannot use operator '+'" },
          { msg = "cannot index" },
       }))
+
+      it("no warnings for checks on unions of records", util.check_warnings([[
+         local record R1
+            metamethod __is: function(self: R1|R2): boolean = macroexp(self: R1|R2): boolean
+               true
+            end
+         end
+
+         local record R2
+            metamethod __is: function(self: R1|R2): boolean = macroexp(self: R1|R2): boolean
+               false
+            end
+         end
+
+         local type RS = R1 | R2
+
+         local rs1 : RS
+
+         if rs1 is R1 then
+            print("yes")
+         end
+
+         local rs2 : R1 | R2
+
+         if rs2 is R2 then
+            print("yes")
+         end
+      ]], { }))
    end)
 
    describe("code gen", function()

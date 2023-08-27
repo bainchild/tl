@@ -7139,6 +7139,10 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          local t2r = resolve_tuple_and_nominal(t2)
          if is_record_type(t1r) and is_record_type(t2r) then
             return same, err
+         elseif t1r.typename == "union" then
+            return is_a(t1r, t2, for_equality)
+         elseif t2r.typename == "union" then
+            return is_a(t1, t2r, for_equality)
          else
             return is_a(t1r, t2r, for_equality)
          end
