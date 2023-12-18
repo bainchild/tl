@@ -1252,6 +1252,7 @@ local table_types = {
 
 
 
+
 local TruthyFact = {}
 
 
@@ -3683,9 +3684,11 @@ local function recurse_type(ast, visit)
       end
    end
    if ast.interface_list then
+io.stderr:write("RECURSING INTERFACE LIST\n")
       for _, child in ipairs(ast.interface_list) do
-         recurse_type(child, visit)
+         table.insert(xs, recurse_type(child, visit))
       end
+io.stderr:write("DONE WITh INTERFACE LIST\n")
    end
    if ast.def then
       table.insert(xs, recurse_type(ast.def, visit))
@@ -8474,7 +8477,7 @@ a.types[i], b.types[i]), }
          end
 
          if rec.kind == "variable" then
-            return nil, "invalid key '" .. key .. "' in record '" .. rec.tk .. "' of type %s"
+            return nil, "invalid key '" .. key .. "' in record '" .. rec.tk .. "' of type %s " .. debug.traceback()
          else
             return nil, "invalid key '" .. key .. "' in type %s"
          end
@@ -11281,6 +11284,57 @@ a.types[i], b.types[i]), }
       return t
    end
 
+   local expand_interfaces
+   do
+      local function add_interface_fields(what, fields, field_order, iface, orig_iface, list)
+         if not fields then
+            return
+         end
+         for fname, ftype in fields_of(iface, list) do
+            if fields[fname] then
+               if not is_a(fields[fname], ftype) then
+                  error_at(fields[fname], what .. " '" .. fname .. "' does not match definition in interface %s", orig_iface)
+               end
+            else
+               table.insert(field_order, fname)
+               fields[fname] = ftype
+            end
+         end
+      end
+
+      local function expand(t, seen)
+         if t.interfaces_expanded then
+            return t
+         end
+         t.interfaces_expanded = true
+         if seen[t] then
+            return
+         end
+         seen[t] = true
+         for i, iface in ipairs(t.interface_list) do
+            local orig_iface = iface
+
+            if iface.typename == "nominal" then
+               iface = resolve_nominal(iface)
+            end
+
+            if iface.typename == "interface" then
+               if iface.interface_list then
+                  iface = expand(iface, seen)
+               end
+
+               add_interface_fields("field", t.fields, t.field_order, iface, orig_iface)
+               add_interface_fields("metamethod", t.meta_fields, t.meta_field_order, iface, orig_iface, "meta")
+            end
+         end
+         return t
+      end
+
+      expand_interfaces = function(t)
+         return expand(t, {})
+      end
+   end
+
    local visit_type
    visit_type = {
       cbs = {
@@ -11330,6 +11384,12 @@ a.types[i], b.types[i]), }
                      i = i + 1
                   end
                end
+               if typ.interface_list then
+                  for j, _ in ipairs(typ.interface_list) do
+                     typ.interface_list[j] = children[i]
+                     i = i + 1
+                  end
+               end
                if typ.elements then
                   typ.elements = children[i]
                   i = i + 1
@@ -11366,6 +11426,11 @@ a.types[i], b.types[i]), }
                   typ.meta_fields[name] = ftype
                   i = i + 1
                end
+
+               if typ.interface_list then
+                  expand_interfaces(typ)
+               end
+
                return typ
             end,
          },

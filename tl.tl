@@ -1064,9 +1064,7 @@ local table_types <total>: {TypeName:boolean} = {
    ["*"] = false,
 }
 
-local record Type
-   where self.typename ~= nil
-
+local interface IType
    y: integer
    x: integer
    filename: string
@@ -1103,6 +1101,7 @@ local record Type
 
    -- records
    interface_list: {Type}
+   interfaces_expanded: boolean
    typeargs: {Type}
    fields: {string: Type}
    field_order: {string}
@@ -1160,6 +1159,11 @@ local record Type
    nominals: {string:{Type}}
    global_types: {string:boolean}
    narrows: {string:boolean}
+end
+
+local record Type
+   is IType
+   where self.typename ~= nil
 end
 
 local type TupleType = Type
@@ -3684,7 +3688,7 @@ local function recurse_type<T>(ast: Type, visit: Visitor<TypeName, Type, T>): T
    end
    if ast.interface_list then
       for _, child in ipairs(ast.interface_list) do
-         recurse_type(child, visit)
+         table.insert(xs, recurse_type(child, visit))
       end
    end
    if ast.def then
@@ -11281,6 +11285,54 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
       return t
    end
 
+   local expand_interfaces: function(Type): Type
+   do
+      local function add_interface_fields(what: string, fields: {string:Type}, field_order: {string}, iface: Type, orig_iface: Type, list?: MetaMode)
+         for fname, ftype in fields_of(iface, list) do
+            if fields[fname] then
+               if not is_a(fields[fname], ftype) then
+                  error_at(fields[fname], what .." '" .. fname .. "' does not match definition in interface %s", orig_iface)
+               end
+            else
+               table.insert(field_order, fname)
+               fields[fname] = ftype
+            end
+         end
+      end
+
+      local function expand(t: Type, seen: {Type:boolean}): Type
+         if t.interfaces_expanded then
+            return t
+         end
+         t.interfaces_expanded = true
+         if seen[t] then
+            return
+         end
+         seen[t] = true
+         for _, iface in ipairs(t.interface_list) do
+            local orig_iface = iface
+
+            if iface.typename == "nominal" then
+               iface = resolve_nominal(iface)
+            end
+
+            if iface.typename == "interface" then
+               if iface.interface_list then
+                  iface = expand(iface, seen)
+               end
+
+               add_interface_fields("field", t.fields, t.field_order, iface, orig_iface)
+               add_interface_fields("metamethod", t.meta_fields, t.meta_field_order, iface, orig_iface, "meta")
+            end
+         end
+         return t
+      end
+
+      expand_interfaces = function(t: Type): Type
+         return expand(t, {})
+      end
+   end
+
    local visit_type: Visitor<TypeName,Type,Type>
    visit_type = {
       cbs = {
@@ -11330,6 +11382,12 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
                      i = i + 1
                   end
                end
+               if typ.interface_list then
+                  for j, _ in ipairs(typ.interface_list) do
+                     typ.interface_list[j] = children[i]
+                     i = i + 1
+                  end
+               end
                if typ.elements then
                   typ.elements = children[i]
                   i = i + 1
@@ -11366,6 +11424,11 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
                   typ.meta_fields[name] = ftype
                   i = i + 1
                end
+
+               if typ.interface_list then
+                  expand_interfaces(typ)
+               end
+
                return typ
             end,
          },

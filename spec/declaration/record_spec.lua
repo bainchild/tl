@@ -321,7 +321,7 @@ for i, name in ipairs({"records", "arrayrecords", "interfaces", "arrayinterfaces
          f.enum = 123
       ]]))
 
-      it("can have nested generic " .. name, util.check([[
+      it("#only can have nested generic " .. name, util.check([[
          local type Foo = ]]..statement..[[ ]]..array(i, "{Foo}")..[[
             type Bar = ]]..statement..[[<T> ]]..array(i, "{Bar<T>}")..[[
                x: T
