@@ -7090,7 +7090,7 @@ tl.type_check = function(ast, opts)
    end
 
    local function drop_constant_value(t)
-      if t.typename == "string" and t.literal then
+      if t and t.typename == "string" and t.literal then
          local ret = shallow_copy_table(t)
          ret.literal = nil
          return ret
