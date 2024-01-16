@@ -480,8 +480,8 @@ end
 
 
 
-
 local tl = {PrettyPrintOptions = {}, TypeCheckOptions = {}, Env = {}, Result = {}, Error = {}, TypeInfo = {}, TypeReport = {}, EnvOptions = {}, }
+
 
 
 
@@ -1849,6 +1849,14 @@ local table_types = {
 
 
 
+
+
+
+
+
+
+
+
 local TruthyFact = {}
 
 
@@ -2125,16 +2133,22 @@ end
 local function new_type(ps, i, typename)
    local token = ps.tokens[i]
    return a_type(typename, {
-      filename = ps.filename,
       y = token.y,
       x = token.x,
-
    })
 end
 
 local function new_typedecl(ps, i, def)
    local t = new_type(ps, i, "typedecl")
+   t.file_name = ps.filename
    t.def = def
+   return t
+end
+
+local function new_typealias(ps, i, alias_to)
+   local t = new_type(ps, i, "typealias")
+   t.file_name = ps.filename
+   t.alias_to = alias_to
    return t
 end
 
@@ -3513,10 +3527,11 @@ local function parse_nested_type(ps, i, def, typename, parse_body)
 
    local nt = new_node(ps.tokens, i - 2, "newtype")
    local ndef = new_type(ps, i, typename)
+   local itype = i
    local iok = parse_body(ps, i, ndef, nt)
    if iok then
       i = iok
-      nt.newtype = new_typedecl(ps, i, ndef)
+      nt.newtype = new_typedecl(ps, itype, ndef)
    end
 
    store_field_in_record(ps, iv, v.tk, nt.newtype, def.fields, def.field_order)
@@ -3828,9 +3843,7 @@ parse_newtype = function(ps, i)
       end
 
       if def.typename == "nominal" then
-         local typealias = new_type(ps, itype, "typealias")
-         typealias.alias_to = def
-         node.newtype = typealias
+         node.newtype = new_typealias(ps, itype, def)
       else
          node.newtype = new_typedecl(ps, itype, def)
       end
@@ -5496,7 +5509,7 @@ function TypeReporter:store_function(ti, rt)
    ti.varret = not not rt.rets.is_va
 end
 
-function TypeReporter:get_typenum(t)
+function TypeReporter:get_typenum(t, filename)
    assert(t.typeid)
 
    local n = self.typeid_to_num[t.typeid]
@@ -5520,10 +5533,14 @@ function TypeReporter:get_typenum(t)
       rt = rt.alias_to
    end
 
+   local file = t.file_name and t.file_name or
+   t.y and filename or
+   nil
+
    local ti = {
       t = assert(typename_to_typecode[rt.typename]),
       str = show_type(t, true),
-      file = t.filename,
+      file = file,
       y = t.y,
       x = t.x,
    }
@@ -5615,7 +5632,7 @@ function TypeReporter:get_collector(filename)
          ft[y] = yt
       end
 
-      yt[x] = self:get_typenum(typ)
+      yt[x] = self:get_typenum(typ, filename)
    end
 
    tc.reserve_symbol_list_slot = function(node)
@@ -6164,7 +6181,7 @@ local function show_type_base(t, short, seen)
 end
 
 local function inferred_msg(t)
-   return " (inferred at " .. t.inferred_at.filename .. ":" .. t.inferred_at.y .. ":" .. t.inferred_at.x .. ")"
+   return " (inferred at " .. t.inferred_file .. ":" .. t.inferred_at.y .. ":" .. t.inferred_at.x .. ")"
 end
 
 show_type = function(t, short, seen)
@@ -6219,25 +6236,26 @@ end
 local function require_module(module_name, lax, env)
    local mod = env.modules[module_name]
    if mod then
-      return mod, true
+      return mod, env.module_filenames[module_name]
    end
 
    local found, fd = tl.search_module(module_name, true)
    if found and (lax or found:match("tl$")) then
 
-      env.modules[module_name] = a_type("typedecl", { def = CIRCULAR_REQUIRE })
+      env.module_filenames[module_name] = found
+      env.modules[module_name] = a_type("typedecl", { y = 1, x = 1, file_name = found, def = CIRCULAR_REQUIRE })
 
       local found_result, err = tl.process(found, env, fd)
       assert(found_result, err)
 
       env.modules[module_name] = found_result.type
 
-      return found_result.type, true
+      return found_result.type, found
    elseif fd then
       fd:close()
    end
 
-   return INVALID, found ~= nil
+   return INVALID, found
 end
 
 local compat_code_cache = {}
@@ -6413,6 +6431,7 @@ tl.init_env = function(lax, gen_compat, gen_target, predefined)
 
    local env = {
       modules = {},
+      module_filenames = {},
       loaded = {},
       loaded_order = {},
       globals = {},
@@ -6616,7 +6635,6 @@ tl.type_check = function(ast, opts)
          end
          msg = msg:format(_tl_table_unpack(showt))
       end
-      local name = where.filename or filename
 
       if TL_DEBUG then
          io.stderr:write("ERROR:" .. (where.y or -1) .. ":" .. (where.x or -1) .. ": " .. msg .. "\n")
@@ -6626,7 +6644,7 @@ tl.type_check = function(ast, opts)
          y = where.y,
          x = where.x,
          msg = msg,
-         filename = name,
+         filename = filename,
       }
    end
 
@@ -6853,7 +6871,6 @@ tl.type_check = function(ast, opts)
          seen[orig_t] = copy
 
          copy.typename = t.typename
-         copy.filename = t.filename
          copy.x = t.x
          copy.y = t.y
 
@@ -6883,9 +6900,11 @@ tl.type_check = function(ast, opts)
             end
          elseif t.typename == "typedecl" then
             assert(copy.typename == "typedecl")
+            copy.file_name = t.file_name
             copy.def, same = resolve(t.def, same)
          elseif t.typename == "typealias" then
             assert(copy.typename == "typealias")
+            copy.file_name = t.file_name
             copy.alias_to, same = resolve(t.alias_to, same)
             copy.is_nested_alias = t.is_nested_alias
          elseif t.typename == "nominal" then
@@ -7031,7 +7050,7 @@ tl.type_check = function(ast, opts)
          y = where.y,
          x = where.x,
          msg = fmt:format(...),
-         filename = where.filename or filename,
+         filename = filename,
          tag = tag,
       })
    end
@@ -7123,7 +7142,6 @@ tl.type_check = function(ast, opts)
    local function type_at(w, t)
       t.x = w.x
       t.y = w.y
-      t.filename = filename
       return t
    end
 
@@ -7151,7 +7169,7 @@ tl.type_check = function(ast, opts)
          ret = shallow_copy_table(ret)
       end
       ret.inferred_at = where
-      ret.inferred_at.filename = filename
+      ret.inferred_file = filename
       return ret
    end
 
@@ -7512,13 +7530,6 @@ tl.type_check = function(ast, opts)
             return INVALID
          end
 
-         if not t.filename then
-            t.filename = resolved.filename
-            if t.x == nil and t.y == nil then
-               t.x = resolved.x
-               t.y = resolved.y
-            end
-         end
 
          t.resolved = resolved
          return resolved
@@ -7567,13 +7578,15 @@ tl.type_check = function(ast, opts)
       local t1name = show_type(t1)
       local t2name = show_type(t2)
       if t1name == t2name then
-         local t1r = resolve_nominal(t1)
-         if t1r.filename then
-            t1name = t1name .. " (defined in " .. t1r.filename .. ":" .. t1r.y .. ")"
+         resolve_nominal(t1)
+         if t1.found then
+            assert(t1.found.file_name)
+            t1name = t1name .. " (defined in " .. t1.found.file_name .. ":" .. t1.found.y .. ")"
          end
-         local t2r = resolve_nominal(t2)
-         if t2r.filename then
-            t2name = t2name .. " (defined in " .. t2r.filename .. ":" .. t2r.y .. ")"
+         resolve_nominal(t2)
+         if t2.found then
+            assert(t2.found.file_name)
+            t2name = t2name .. " (defined in " .. t2.found.file_name .. ":" .. t2.found.y .. ")"
          end
       end
       return false, { Err(t1, t1name .. " is not a " .. t2name) }
@@ -8823,7 +8836,7 @@ a.types[i], b.types[i]), }
          end
 
          if is_method and args.tuple[1] then
-            add_var(nil, "@self", type_at(where, a_type("typedecl", { def = args.tuple[1] })))
+            add_var(nil, "@self", a_type("typedecl", { y = where.y, x = where.x, file_name = filename, def = args.tuple[1] }))
          end
 
          local passes, n = 1, 1
@@ -9323,7 +9336,7 @@ a.types[i], b.types[i]), }
          end
 
          errm, erra, errb = "inconsistent index type: got %s, expected %s (type of keys inferred at " ..
-         ra.keys.inferred_at.filename .. ":" ..
+         ra.keys.inferred_file .. ":" ..
          ra.keys.inferred_at.y .. ":" ..
          ra.keys.inferred_at.x .. ": )", b, ra.keys
       elseif ra.typename == "map" then
@@ -10006,19 +10019,19 @@ a.types[i], b.types[i]), }
          end
 
          local module_name = assert(node.e2[1].conststr)
-         local t, found = require_module(module_name, lax, env)
-         if not found then
-            return invalid_at(node, "module not found: '" .. module_name .. "'")
-         end
-
+         local t, module_filename = require_module(module_name, lax, env)
          if t.typename == "invalid" then
+            if not module_filename then
+               return invalid_at(node, "module not found: '" .. module_name .. "'")
+            end
+
             if lax then
                return a_type("tuple", { tuple = { UNKNOWN } })
             end
             return invalid_at(node, "no type information for required module: '" .. module_name .. "'")
          end
 
-         dependencies[module_name] = t.filename
+         dependencies[module_name] = module_filename
          return type_at(node, a_type("tuple", { tuple = { t } }))
       end,
 
@@ -11974,7 +11987,7 @@ expand_type(node, values, elements) })
          ["record"] = {
             before = function(typ)
                begin_scope()
-               add_var(nil, "@self", type_at(typ, a_type("typedecl", { def = typ })))
+               add_var(nil, "@self", type_at(typ, a_type("typedecl", { y = typ.y, x = typ.x, file_name = filename, def = typ })))
 
                for fname, ftype in fields_of(typ) do
                   if ftype.typename == "typealias" then
@@ -12412,7 +12425,7 @@ local function tl_package_loader(module_name)
          env = tl.package_loader_env
       end
 
-      env.modules[module_name] = a_type("typedecl", { def = CIRCULAR_REQUIRE })
+      env.modules[module_name] = a_type("typedecl", { y = 1, x = 1, file_name = found_filename, def = CIRCULAR_REQUIRE })
 
       local result = tl.type_check(program, {
          lax = lax,

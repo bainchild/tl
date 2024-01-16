@@ -478,7 +478,6 @@ end
 local interface Where
    y: integer
    x: integer
-   filename: string
 end
 
 local record tl
@@ -527,6 +526,7 @@ local record tl
    record Env
       globals: {string:Variable}
       modules: {string:Type}
+      module_filenames: {string:string}
       loaded: {string:Result}
       loaded_order: {string}
       reporter: TypeReporter
@@ -626,7 +626,7 @@ local record TypeReporter
    next_num: integer
    tr: TypeReport
 
-   get_typenum: function(TypeReporter, Type): integer
+   get_typenum: function(TypeReporter, Type, ? string): integer
 end
 
 tl.version = function(): string
@@ -1564,6 +1564,7 @@ local interface Type
    typename: TypeName    -- discriminator
    typeid: integer       -- unique identifier
    inferred_at: Where    -- for error messages
+   inferred_file: string -- for error messages
    needs_compat: boolean -- for Lua compatibilty
 end
 
@@ -1574,8 +1575,15 @@ local record StringType
    literal: string
 end
 
-local record TypeDeclType
+local interface TypeType
    is Type
+   where self.file_name
+
+   file_name: string
+end
+
+local record TypeDeclType
+   is TypeType
    where self.typename == "typedecl"
 
    def: Type
@@ -1583,7 +1591,7 @@ local record TypeDeclType
 end
 
 local record TypeAliasType
-   is Type
+   is TypeType
    where self.typename == "typealias"
 
    alias_to: NominalType
@@ -1626,7 +1634,7 @@ local record NominalType
 
    names: {string}
    typevals: {Type}
-   found: Type          -- type is found but typeargs are not resolved
+   found: TypeType     -- type is found but typeargs are not resolved
    resolved: Type       -- type is found and typeargs are resolved
 end
 
@@ -2125,21 +2133,27 @@ end
 local function new_type(ps: ParseState, i: integer, typename: TypeName): Type
    local token = ps.tokens[i]
    return a_type(typename, {
-      filename = ps.filename,
       y = token.y,
       x = token.x,
-      --tk = token.tk
    })
 end
 
 local function new_typedecl(ps: ParseState, i: integer, def: Type): TypeDeclType
    local t = new_type(ps, i, "typedecl") as TypeDeclType
+   t.file_name = ps.filename
    t.def = def
    return t
 end
 
-local macroexp a_typedecl(def: Type): TypeDeclType
-   return a_type("typedecl", { def = def } as TypeDeclType)
+local function new_typealias(ps: ParseState, i: integer, alias_to: NominalType): TypeAliasType
+   local t = new_type(ps, i, "typealias") as TypeAliasType
+   t.file_name = ps.filename
+   t.alias_to = alias_to
+   return t
+end
+
+local macroexp a_typedecl(y: integer, x: integer, file_name: string, def: Type): TypeDeclType
+   return a_type("typedecl", { y = y, x = x, file_name = file_name, def = def } as TypeDeclType)
 end
 
 local macroexp a_tuple(t: {Type}): TupleType
@@ -3513,10 +3527,11 @@ local function parse_nested_type(ps: ParseState, i: integer, def: RecordLikeType
 
    local nt: Node = new_node(ps.tokens, i - 2, "newtype")
    local ndef = new_type(ps, i, typename)
+   local itype = i
    local iok = parse_body(ps, i, ndef, nt)
    if iok then
       i = iok
-      nt.newtype = new_typedecl(ps, i, ndef)
+      nt.newtype = new_typedecl(ps, itype, ndef)
    end
 
    store_field_in_record(ps, iv, v.tk, nt.newtype, def.fields, def.field_order)
@@ -3828,9 +3843,7 @@ parse_newtype = function(ps: ParseState, i: integer): integer, Node
       end
 
       if def is NominalType then
-         local typealias = new_type(ps, itype, "typealias") as TypeAliasType
-         typealias.alias_to = def
-         node.newtype = typealias
+         node.newtype = new_typealias(ps, itype, def)
       else
          node.newtype = new_typedecl(ps, itype, def)
       end
@@ -5496,7 +5509,7 @@ function TypeReporter:store_function(ti: TypeInfo, rt: FunctionType)
    ti.varret = not not rt.rets.is_va
 end
 
-function TypeReporter:get_typenum(t: Type): integer
+function TypeReporter:get_typenum(t: Type, filename?: string): integer
    assert(t.typeid)
    -- try by typeid
    local n = self.typeid_to_num[t.typeid]
@@ -5520,10 +5533,14 @@ function TypeReporter:get_typenum(t: Type): integer
       rt = rt.alias_to
    end
 
+   local file = t is TypeType and t.file_name or
+                t.y and filename or
+                nil
+
    local ti: TypeInfo = {
       t = assert(typename_to_typecode[rt.typename]),
       str = show_type(t, true),
-      file = t.filename,
+      file = file,
       y = t.y,
       x = t.x,
    }
@@ -5615,7 +5632,7 @@ function TypeReporter:get_collector(filename: string): TypeCollector
          ft[y] = yt
       end
 
-      yt[x] = self:get_typenum(typ)
+      yt[x] = self:get_typenum(typ, filename)
    end
 
    tc.reserve_symbol_list_slot = function(node: Node)
@@ -6164,7 +6181,7 @@ local function show_type_base(t: Type, short: boolean, seen: {Type:string}): str
 end
 
 local function inferred_msg(t: Type): string
-   return " (inferred at "..t.inferred_at.filename..":"..t.inferred_at.y..":"..t.inferred_at.x..")"
+   return " (inferred at "..t.inferred_file..":"..t.inferred_at.y..":"..t.inferred_at.x..")"
 end
 
 show_type = function(t: Type, short?: boolean, seen?: {Type:string}): string
@@ -6216,28 +6233,29 @@ function tl.search_module(module_name: string, search_dtl: boolean): string, FIL
    return nil, nil, tried
 end
 
-local function require_module(module_name: string, lax: boolean, env: Env): Type, boolean
+local function require_module(module_name: string, lax: boolean, env: Env): Type, string
    local mod = env.modules[module_name]
    if mod then
-      return mod, true
+      return mod, env.module_filenames[module_name]
    end
 
    local found, fd = tl.search_module(module_name, true)
    if found and (lax or found:match("tl$") as boolean) then
 
-      env.modules[module_name] = a_typedecl(CIRCULAR_REQUIRE)
+      env.module_filenames[module_name] = found
+      env.modules[module_name] = a_typedecl(1, 1, found, CIRCULAR_REQUIRE)
 
       local found_result, err: Result, string = tl.process(found, env, fd)
       assert(found_result, err)
 
       env.modules[module_name] = found_result.type
 
-      return found_result.type, true
+      return found_result.type, found
    elseif fd then
       fd:close()
    end
 
-   return INVALID, found ~= nil
+   return INVALID, found
 end
 
 local compat_code_cache: {string:Node} = {}
@@ -6413,6 +6431,7 @@ tl.init_env = function(lax?: boolean, gen_compat?: boolean | CompatMode, gen_tar
 
    local env: Env = {
       modules = {},
+      module_filenames = {},
       loaded = {},
       loaded_order = {},
       globals = {},
@@ -6616,7 +6635,6 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          end
          msg = msg:format(table.unpack(showt))
       end
-      local name = where.filename or filename
 
       if TL_DEBUG then
          io.stderr:write("ERROR:" .. (where.y or -1) .. ":" .. (where.x or -1) .. ": " .. msg .. "\n")
@@ -6626,7 +6644,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          y = where.y,
          x = where.x,
          msg = msg,
-         filename = name,
+         filename = filename,
       }
    end
 
@@ -6853,7 +6871,6 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          seen[orig_t] = copy
 
          copy.typename = t.typename
-         copy.filename = t.filename
          copy.x = t.x
          copy.y = t.y
 
@@ -6883,9 +6900,11 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
             end
          elseif t is TypeDeclType then
             assert(copy is TypeDeclType)
+            copy.file_name = t.file_name
             copy.def, same = resolve(t.def, same)
          elseif t is TypeAliasType then
             assert(copy is TypeAliasType)
+            copy.file_name = t.file_name
             copy.alias_to, same = resolve(t.alias_to, same)
             copy.is_nested_alias = t.is_nested_alias
          elseif t is NominalType then
@@ -7031,7 +7050,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          y = where.y,
          x = where.x,
          msg = fmt:format(...),
-         filename = where.filename or filename,
+         filename = filename,
          tag = tag,
       })
    end
@@ -7123,7 +7142,6 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
    local function type_at<T is Type>(w: Where, t: T): T
       t.x = w.x
       t.y = w.y
-      t.filename = filename
       return t
    end
 
@@ -7151,7 +7169,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          ret = shallow_copy_table(ret)
       end
       ret.inferred_at = where
-      ret.inferred_at.filename = filename
+      ret.inferred_file = filename
       return ret
    end
 
@@ -7512,13 +7530,6 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
             return INVALID
          end
 
-         if not t.filename then
-            t.filename = resolved.filename
-            if t.x == nil and t.y == nil then
-               t.x = resolved.x
-               t.y = resolved.y
-            end
-         end
 
          t.resolved = resolved
          return resolved
@@ -7567,13 +7578,15 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
       local t1name = show_type(t1)
       local t2name = show_type(t2)
       if t1name == t2name then
-         local t1r = resolve_nominal(t1)
-         if t1r.filename then
-            t1name = t1name .. " (defined in " .. t1r.filename .. ":" .. t1r.y .. ")"
+         resolve_nominal(t1)
+         if t1.found then
+            assert(t1.found.file_name)
+            t1name = t1name .. " (defined in " .. t1.found.file_name .. ":" .. t1.found.y .. ")"
          end
-         local t2r = resolve_nominal(t2)
-         if t2r.filename then
-            t2name = t2name .. " (defined in " .. t2r.filename .. ":" .. t2r.y .. ")"
+         resolve_nominal(t2)
+         if t2.found then
+            assert(t2.found.file_name)
+            t2name = t2name .. " (defined in " .. t2.found.file_name .. ":" .. t2.found.y .. ")"
          end
       end
       return false, { Err(t1, t1name .. " is not a " .. t2name) }
@@ -8823,7 +8836,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          end
 
          if is_method and args.tuple[1] then
-            add_var(nil, "@self", type_at(where, a_typedecl(args.tuple[1])))
+            add_var(nil, "@self", a_typedecl(where.y, where.x, filename, args.tuple[1]))
          end
 
          local passes, n = 1, 1
@@ -9323,7 +9336,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          end
 
          errm, erra, errb = "inconsistent index type: got %s, expected %s (type of keys inferred at "
-                            .. ra.keys.inferred_at.filename .. ":"
+                            .. ra.keys.inferred_file .. ":"
                             .. ra.keys.inferred_at.y .. ":"
                             .. ra.keys.inferred_at.x .. ": )", b, ra.keys
       elseif ra is MapType then
@@ -10006,19 +10019,19 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          end
 
          local module_name = assert(node.e2[1].conststr)
-         local t, found = require_module(module_name, lax, env)
-         if not found then
-            return invalid_at(node, "module not found: '" .. module_name .. "'")
-         end
-
+         local t, module_filename = require_module(module_name, lax, env)
          if t.typename == "invalid" then
+            if not module_filename then
+               return invalid_at(node, "module not found: '" .. module_name .. "'")
+            end
+
             if lax then
                return a_tuple({ UNKNOWN })
             end
             return invalid_at(node, "no type information for required module: '" .. module_name .. "'")
          end
 
-         dependencies[module_name] = t.filename
+         dependencies[module_name] = module_filename
          return type_at(node, a_tuple({ t }))
       end,
 
@@ -11974,7 +11987,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
          ["record"] = {
             before = function(typ: Type)
                begin_scope()
-               add_var(nil, "@self", type_at(typ, a_typedecl(typ)))
+               add_var(nil, "@self", type_at(typ, a_typedecl(typ.y, typ.x, filename, typ)))
 
                for fname, ftype in fields_of(typ) do
                   if ftype is TypeAliasType then
@@ -12412,7 +12425,7 @@ local function tl_package_loader(module_name: string): any, any
          env = tl.package_loader_env
       end
 
-      env.modules[module_name] = a_typedecl(CIRCULAR_REQUIRE)
+      env.modules[module_name] = a_typedecl(1, 1, found_filename, CIRCULAR_REQUIRE)
 
       local result = tl.type_check(program, {
          lax = lax,
