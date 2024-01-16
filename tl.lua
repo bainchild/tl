@@ -2152,6 +2152,12 @@ local function new_typealias(ps, i, alias_to)
    return t
 end
 
+local function new_nominal(ps, i, name)
+   local t = new_type(ps, i, "nominal")
+   t.names = { name }
+   return t
+end
+
 
 
 
@@ -2246,6 +2252,10 @@ end
 
 
 
+
+local function a_nominal(n, names)
+   return a_type("nominal", { y = n.y, x = n.x, names = names })
+end
 
 local NIL = a_type("nil", {})
 local ANY = a_type("any", {})
@@ -2557,8 +2567,7 @@ local function parse_simple_type_or_nominal(ps, i)
    if st then
       return i + 1, st
    end
-   local typ = new_type(ps, i, "nominal")
-   typ.names = { tk }
+   local typ = new_nominal(ps, i, tk)
    i = i + 1
    while ps.tokens[i].tk == "." do
       i = i + 1
@@ -3601,14 +3610,10 @@ end
 
 local function parse_where_clause(ps, i)
    local node = new_node(ps.tokens, i, "macroexp")
-
-   local selftype = new_type(ps, i, "nominal")
-   selftype.names = { "@self" }
-
    node.args = new_node(ps.tokens, i, "argument_list")
    node.args[1] = new_node(ps.tokens, i, "argument")
    node.args[1].tk = "self"
-   node.args[1].argtype = selftype
+   node.args[1].argtype = new_nominal(ps, i, "@self")
    node.min_arity = 1
    node.rets = new_tuple(ps, i)
    node.rets.tuple[1] = BOOLEAN
@@ -3694,12 +3699,7 @@ parse_record_body = function(ps, i, def, node)
       typ.is_method = true
       typ.min_arity = 1
       typ.args = a_type("tuple", { tuple = {
-         a_type("nominal", {
-            y = typ.y,
-            x = typ.x,
-            filename = ps.filename,
-            names = { "@self" },
-         }),
+         a_nominal(where_macroexp, { "@self" }),
       } })
       typ.rets = a_type("tuple", { tuple = { BOOLEAN } })
       typ.macroexp = where_macroexp
@@ -5760,7 +5760,6 @@ local CIRCULAR_REQUIRE = a_type("circular_require", {})
 
 local FUNCTION = a_fn({ args = va_args({ ANY }), rets = va_args({ ANY }) })
 
-
 local XPCALL_MSGH_FUNCTION = a_fn({ args = { ANY }, rets = {} })
 
 
@@ -7529,7 +7528,6 @@ tl.type_check = function(ast, opts)
             error_at(t, table.concat(t.names, ".") .. " cannot be resolved in scope")
             return INVALID
          end
-
 
          t.resolved = resolved
          return resolved
@@ -9474,7 +9472,7 @@ a.types[i], b.types[i]), }
       end
    end
 
-   local function typedecl_to_nominal(where, name, t, resolved)
+   local function typedecl_to_nominal(node, name, t, resolved)
       local typevals
       local def = t.def
       if def.typeargs then
@@ -9486,12 +9484,11 @@ a.types[i], b.types[i]), }
             }))
          end
       end
-      return type_at(where, a_type("nominal", {
-         typevals = typevals,
-         names = { name },
-         found = t,
-         resolved = resolved,
-      }))
+      local nom = a_nominal(node, { name })
+      nom.typevals = typevals
+      nom.found = t
+      nom.resolved = resolved
+      return nom
    end
 
    local function get_self_type(exp)

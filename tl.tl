@@ -2152,6 +2152,12 @@ local function new_typealias(ps: ParseState, i: integer, alias_to: NominalType):
    return t
 end
 
+local function new_nominal(ps: ParseState, i: integer, name: string): NominalType
+   local t = new_type(ps, i, "nominal") as NominalType
+   t.names = { name }
+   return t
+end
+
 local macroexp a_typedecl(y: integer, x: integer, file_name: string, def: Type): TypeDeclType
    return a_type("typedecl", { y = y, x = x, file_name = file_name, def = def } as TypeDeclType)
 end
@@ -2245,6 +2251,10 @@ end
 
 local macroexp a_map(k: Type, v: Type): MapType
    return a_type("map", { keys = k, values = v } as MapType)
+end
+
+local function a_nominal(n: Node, names: {string}): NominalType
+   return a_type("nominal", { y = n.y, x = n.x, names = names } as NominalType)
 end
 
 local NIL = a_type("nil", {})
@@ -2557,8 +2567,7 @@ local function parse_simple_type_or_nominal(ps: ParseState, i: integer): integer
    if st then
       return i + 1, st
    end
-   local typ = new_type(ps, i, "nominal") as NominalType
-   typ.names = { tk }
+   local typ = new_nominal(ps, i, tk)
    i = i + 1
    while ps.tokens[i].tk == "." do
       i = i + 1
@@ -3601,14 +3610,10 @@ end
 
 local function parse_where_clause(ps: ParseState, i: integer): integer, Node
    local node = new_node(ps.tokens, i, "macroexp")
-
-   local selftype = new_type(ps, i, "nominal") as NominalType
-   selftype.names = { "@self" }
-
    node.args = new_node(ps.tokens, i, "argument_list")
    node.args[1] = new_node(ps.tokens, i, "argument")
    node.args[1].tk = "self"
-   node.args[1].argtype = selftype
+   node.args[1].argtype = new_nominal(ps, i, "@self")
    node.min_arity = 1
    node.rets = new_tuple(ps, i)
    node.rets.tuple[1] = BOOLEAN
@@ -3694,12 +3699,7 @@ parse_record_body = function(ps: ParseState, i: integer, def: RecordLikeType, no
       typ.is_method = true
       typ.min_arity = 1
       typ.args = a_tuple {
-         a_type("nominal", {
-            y = typ.y,
-            x = typ.x,
-            filename = ps.filename,
-            names = { "@self" }
-         } as NominalType)
+         a_nominal(where_macroexp, { "@self" })
       }
       typ.rets = a_tuple { BOOLEAN }
       typ.macroexp = where_macroexp
@@ -5760,7 +5760,6 @@ local CIRCULAR_REQUIRE = a_type("circular_require", {})
 
 local FUNCTION = a_fn { args = va_args { ANY }, rets = va_args { ANY } }
 
---local NOMINAL_FILE = a_type("nominal", { names = {"FILE"} } as NominalType)
 local XPCALL_MSGH_FUNCTION = a_fn { args = { ANY }, rets = { } }
 
 --local USERDATA = ANY -- Placeholder for maybe having a userdata "primitive" type
@@ -7529,7 +7528,6 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
             error_at(t, table.concat(t.names, ".") .. " cannot be resolved in scope")
             return INVALID
          end
-
 
          t.resolved = resolved
          return resolved
@@ -9474,7 +9472,7 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
       end
    end
 
-   local function typedecl_to_nominal(where: Where, name: string, t: TypeDeclType, resolved?: Type): Type
+   local function typedecl_to_nominal(node: Node, name: string, t: TypeDeclType, resolved?: Type): Type
       local typevals: {Type}
       local def = t.def
       if def is HasTypeArgs then
@@ -9486,12 +9484,11 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
             } as TypeVarType))
          end
       end
-      return type_at(where, a_type("nominal", {
-         typevals = typevals,
-         names = { name },
-         found = t,
-         resolved = resolved,
-      } as NominalType))
+      local nom = a_nominal(node, { name })
+      nom.typevals = typevals
+      nom.found = t
+      nom.resolved = resolved
+      return nom
    end
 
    local function get_self_type(exp: Node): Type
