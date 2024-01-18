@@ -1619,6 +1619,7 @@ local record UnresolvedType
 end
 
 local interface HasTypeArgs
+   is Type
    where self.typeargs
 
    typeargs: {TypeArgType}
@@ -7986,6 +7987,11 @@ tl.type_check = function(ast: Node, opts: TypeCheckOptions): Result, string
       },
       ["record"] = {
          ["record"] = eqtype_record,
+      },
+      ["interface"] = {
+         ["interface"] = function(a: InterfaceType, b: InterfaceType): boolean, {Error}
+            return a.typeid == b.typeid
+         end,
       },
       ["function"] = {
          ["function"] = function(a: FunctionType, b: FunctionType): boolean, {Error}
