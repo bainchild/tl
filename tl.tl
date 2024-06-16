@@ -785,6 +785,8 @@ local enum TokenKind
    "identifier"
    "number"
    "integer"
+   "pragma"
+   "pragma_identifier"
    "$ERR unfinished_comment$"
    "$ERR invalid_string$"
    "$ERR invalid_number$"
@@ -832,6 +834,9 @@ do
       "number hexfloat"
       "number power"
       "number powersign"
+      "pragma"
+      "pragma word"
+      "pragma any"
    end
 
    local last_token_kind <total>: {LexState:TokenKind} = {
@@ -866,6 +871,9 @@ do
       ["number hexfloat"] = "number",
       ["number power"] = "number",
       ["number powersign"] = "$ERR invalid_number$",
+      ["pragma"] = "pragma",
+      ["pragma any"] = nil, -- never in a token
+      ["pragma word"] = "pragma_identifier", -- never in a token
    }
 
    local keywords: {string:boolean} = {
@@ -1009,6 +1017,10 @@ do
          return 0, false
       end
    end
+
+   local valid_pragma: {string:boolean} = {
+      ["--#pragma"] = true
+   }
 
    function tl.lex(input: string, filename: string): {Token}, {Error}
       local tokens: {Token} = {}
@@ -1259,10 +1271,38 @@ do
          elseif state == "got --" then
             if c == "[" then
                state = "got --["
+            elseif c == "#" then
+               state = "pragma"
             else
                fwd = false
                state = "comment short"
                drop_token()
+            end
+         elseif state == "pragma" then
+            if not lex_word[c] then
+               end_token_prev("pragma")
+               if not valid_pragma[tokens[nt].tk] then
+                  add_syntax_error()
+               end
+               fwd = false
+               state = "pragma any"
+            end
+         elseif state == "pragma any" then
+            if c == "\n" then
+               state = "any"
+            elseif lex_word[c] then
+               state = "pragma word"
+               begin_token()
+            elseif not lex_space[c] then
+               begin_token()
+               end_token_here("$ERR invalid$")
+               add_syntax_error()
+            end
+         elseif state == "pragma word" then
+            if not lex_word[c] then
+               end_token_prev("pragma_identifier")
+               fwd = false
+               state = (c == "\n") and "any" or "pragma any"
             end
          elseif state == "got 0" then
             if c == "x" or c == "X" then
@@ -1872,6 +1912,7 @@ local enum NodeKind
    "macroexp"
    "local_macroexp"
    "interface"
+   "pragma"
    "error_node"
 end
 
@@ -2069,6 +2110,10 @@ local record Node
    argtype: Type
    itemtype: Type
    decltuple: TupleType
+
+   -- pragma
+   pkey: string
+   pvalue: string
 
    opt: boolean
 
@@ -4123,7 +4168,27 @@ local function parse_record_function(ps: ParseState, i: integer): integer, Node
    return parse_function(ps, i, "record")
 end
 
+local function parse_pragma(ps: ParseState, i: integer): integer, Node
+   i = i + 1 -- skip "--#pragma"
+   local pragma = new_node(ps, i, "pragma")
+
+   if ps.tokens[i].kind ~= "pragma_identifier" then
+      return fail(ps, i, "expected pragma name")
+   end
+   pragma.pkey = ps.tokens[i].tk
+   i = i + 1
+
+   if ps.tokens[i].kind ~= "pragma_identifier" then
+      return fail(ps, i, "expected pragma value")
+   end
+   pragma.pvalue = ps.tokens[i].tk
+   i = i + 1
+
+   return i, pragma
+end
+
 local parse_statement_fns: {string : function(ParseState, integer):(integer, Node)} = {
+   ["--#pragma"] = parse_pragma,
    ["::"] = parse_label,
    ["do"] = parse_do,
    ["if"] = parse_if,
@@ -4489,6 +4554,7 @@ local no_recurse_node: {NodeKind : boolean} = {
    ["break"] = true,
    ["label"] = true,
    ["number"] = true,
+   ["pragma"] = true,
    ["string"] = true,
    ["boolean"] = true,
    ["integer"] = true,
@@ -5384,6 +5450,8 @@ function tl.pretty_print_ast(ast: Node, gen_target: GenTarget, mode: boolean | P
             table.insert(out, "::")
             return out
          end,
+      },
+      ["pragma"] = {
       },
    }
 
@@ -11940,6 +12008,11 @@ do
       ["newtype"] = {
          after = function(_self: TypeChecker, node: Node, _children: {Type}): Type
             return node.newtype
+         end,
+      },
+      ["pragma"] = {
+         after = function(_self: TypeChecker, _node: Node, _children: {Type}): Type
+            return NONE
          end,
       },
       ["error_node"] = {
