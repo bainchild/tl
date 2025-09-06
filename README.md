@@ -1,3 +1,9 @@
+Why is this a fork?
+===
+
+This fork was created to change the first line of teal outputs to have `load` compatibility with 5.1, even when `compat-5.3` is not installed.
+I will not be syncing this change because it loses out on the functionality of the `mode` and `env` parameters.
+The other feature present in this fork is partial type compilation (transpilation?) to Luau, which may be synced if I find time.
 
 Teal
 ====
