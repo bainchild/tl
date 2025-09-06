@@ -1,4 +1,4 @@
-local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = pcall(require, 'compat53.module'); if p then _tl_compat = m end end; local assert = _tl_compat and _tl_compat.assert or assert; local debug = _tl_compat and _tl_compat.debug or debug; local io = _tl_compat and _tl_compat.io or io; local ipairs = _tl_compat and _tl_compat.ipairs or ipairs; local load = _tl_compat and _tl_compat.load or load; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local os = _tl_compat and _tl_compat.os or os; local package = _tl_compat and _tl_compat.package or package; local pairs = _tl_compat and _tl_compat.pairs or pairs; local string = _tl_compat and _tl_compat.string or string; local table = _tl_compat and _tl_compat.table or table; local _tl_table_unpack = unpack or table.unpack
+local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = pcall(require, 'compat53.module'); if p then _tl_compat = m end end; local assert = _tl_compat and _tl_compat.assert or assert; local debug = _tl_compat and _tl_compat.debug or debug; local io = _tl_compat and _tl_compat.io or io; local ipairs = _tl_compat and _tl_compat.ipairs or ipairs; local load = function(c, ch, m, e) local s, r = loadstring(c, ch); return (s and e and setfenv(s, e) or s), r end; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local os = _tl_compat and _tl_compat.os or os; local package = _tl_compat and _tl_compat.package or package; local pairs = _tl_compat and _tl_compat.pairs or pairs; local string = _tl_compat and _tl_compat.string or string; local table = _tl_compat and _tl_compat.table or table; local _tl_table_unpack = unpack or table.unpack
 local VERSION = "0.15.3+dev"
 
 local tl = {PrettyPrintOptions = {}, TypeCheckOptions = {}, Env = {}, Symbol = {}, Result = {}, Error = {}, TypeInfo = {}, TypeReport = {}, TypeReportEnv = {}, }
@@ -4972,6 +4972,8 @@ local function add_compat_entries(program, used_set, gen_compat)
    for _, name in ipairs(used_list) do
       if name == "table.unpack" then
          load_code(name, "local _tl_table_unpack = unpack or table.unpack")
+      elseif name == "load" then
+         load_code(name, "local load = load or function(c,ch,m,e) local s,r = loadstring(c,ch); return (s and e and setfenv(s,e) or s),r end")
       elseif name == "bit32" then
          load_code(name, "local bit32 = bit32; if not bit32 then local p, m = " .. req("bit32") .. "; if p then bit32 = m end")
       elseif name == "mt" then
@@ -5009,7 +5011,6 @@ local function get_stdlib_compat(lax)
          ["os"] = true,
          ["package"] = true,
          ["debug"] = true,
-         ["load"] = true,
          ["loadfile"] = true,
          ["assert"] = true,
          ["pairs"] = true,
@@ -5226,8 +5227,8 @@ local function init_globals(lax)
       ["ipairs"] = a_gfunction(1, function(a) return { args = TUPLE({ ARRAY(a) }), rets = TUPLE({
    a_type({ typename = "function", args = TUPLE({}), rets = TUPLE({ INTEGER, a }) }),
 }), } end),
-      ["load"] = a_type({ typename = "function", args = TUPLE({ UNION({ STRING, LOAD_FUNCTION }), OPT(STRING), OPT(STRING), OPT(TABLE) }), rets = TUPLE({ FUNCTION, STRING }) }),
-      ["loadfile"] = a_type({ typename = "function", args = TUPLE({ OPT(STRING), OPT(STRING), OPT(TABLE) }), rets = TUPLE({ FUNCTION, STRING }) }),
+      ["load"] = a_type({ typename = "function", args = TUPLE({ UNION({ STRING, LOAD_FUNCTION }), OPT(STRING), OPT(STRING), OPT(TABLE) }), rets = TUPLE({ FUNCTION, STRING }), needs_compat = true }),
+      ["loadfile"] = a_type({ typename = "function", args = TUPLE({ OPT(STRING), OPT(STRING), OPT(TABLE) }), rets = TUPLE({ FUNCTION, STRING }), needs_compat = true }),
       ["next"] = a_type({
          typename = "poly",
          types = {
@@ -5778,7 +5779,7 @@ tl.type_check = function(ast, opts)
                   return { t = var.narrowed_from, attribute = var.attribute }, i, var.attribute
                end
             else
-               if i == 1 and var.needs_compat then
+               if i == 1 and (var.needs_compat or var.t.needs_compat) then
                   all_needs_compat[name] = true
                end
                if use == "use_type" then
