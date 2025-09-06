@@ -19,16 +19,8 @@ run `.tl` files.
 
 ## Introduction
 
-Here are videos of talks given at FOSDEM 2019, 2020 and 2021 which discuss the
-history of Lua and types, outline the motivations behind Teal and talk about
-the project's progress:
-
-* [Minimalism versus types (2019)](https://www.youtube.com/watch?v=OPyBQRndLUk)
-* [Minimalistic typed Lua is here (2020)](https://www.youtube.com/watch?v=HfnjUCRzRKU)
-* [What's Next for Teal (2021)](https://www.youtube.com/watch?v=OqXbnaDR8QY)
-
-Check also the [tutorial](docs/tutorial.md) to get started with an overview of
-the language.
+You can read the [tutorial chapter](https://teal-language.org/book/tutorial.html)
+of the Teal documentation to get started with an overview of the language.
 
 ## Installing
 
@@ -61,6 +53,8 @@ JavaScript, so everything runs on the client.
 
 ## Running
 
+### Using the compiler directly
+
 Once `tl` is in your path, there are a few subcommands:
 
 * `tl run script.tl` will run a Teal script.
@@ -69,11 +63,16 @@ Once `tl` is in your path, there are a few subcommands:
 * `tl gen module.tl` will check for syntax errors and
   generate a `module.lua` file in plain Lua with all type annotations
   stripped.
-* `tl build` will compile your project via the rules defined in `tlconfig.lua`.
 * `tl warnings` will list all warnings the compiler can generate.
 
-`tl` also supports some [compiler options](docs/compiler_options.md).
+`tl` also supports some [compiler options](https://teal-language.org/book/compiler_options.html).
 These can either be specified on the command line or inside a tlconfig.lua file at the root of your project.
+
+### Building projects with Cyan
+
+To build whole projects, you probably won't want to run `tl` on each
+file individually. We recommend using [Cyan](https://github.com/teal-language/cyan),
+the build tool designed for Teal.
 
 ## Loading Teal code from Lua
 
@@ -90,12 +89,13 @@ compile `.tl` files on-the-fly.
 
 ## Documentation
 
-You can learn more about programming and using Teal in the [docs/](docs/)
-folder. The [tutorial](docs/tutorial.md) is a great place to start!
+You can read the [rendered documentation](https://teal-language.org/book/) online;
+it can also be generated locally from the files in the [docs/](docs/) folder
+of this repository.
 
 ## Type definitions
 
-`tl` supports [declaration files](docs/declaration_files.md), which can be used to annotate the types
+`tl` supports [declaration files](https://teal-language.org/book/declaration_files.html), which can be used to annotate the types
 of third-party Lua libraries.
 
 We have a collaborative repository for declaration files at
@@ -103,7 +103,7 @@ https://github.com/teal-language/teal-types — check it out and make your contr
 
 ## Text editor support
 
-Teal language support is currently available for [Vim](https://github.com/teal-language/vim-teal), [Visual Studio Code](https://github.com/teal-language/vscode-teal) and [lite](https://github.com/rxi/lite-plugins/blob/master/plugins/language_teal.lua) with [linter](https://github.com/drmargarido/linters/blob/master/linter_teal.lua) support.
+Teal language support is currently available for [Vim](https://github.com/teal-language/vim-teal), [Visual Studio Code](https://github.com/teal-language/vscode-teal), [lite](https://github.com/rxi/lite-plugins/blob/master/plugins/language_teal.lua) with [linter](https://github.com/drmargarido/linters/blob/master/linter_teal.lua) support and [Helix](https://docs.helix-editor.com/lang-support.html#:~:text=teal&text=teal-language-server) with LSP support.
 
 ## Community
 

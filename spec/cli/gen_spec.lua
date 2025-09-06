@@ -297,6 +297,7 @@ describe("tl gen", function()
 
       local t = {1, 2, 3, 4}
       print(table.unpack(t))
+      local t2 = table.pack(1, 2, "any")
       local n = 42
       local maxi = math.maxinteger
       local mini = math.mininteger
@@ -315,6 +316,7 @@ describe("tl gen", function()
 
       local t = { 1, 2, 3, 4 }
       print(table.unpack(t))
+      local t2 = table.pack(1, 2, "any")
       local n = 42
       local maxi = math.maxinteger
       local mini = math.mininteger
@@ -330,9 +332,10 @@ describe("tl gen", function()
    ]]
 
    local output_code_with_optional_compat = [[
-      local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = pcall(require, 'compat53.module'); if p then _tl_compat = m end end; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local _tl_math_mininteger = math.mininteger or -math.pow(2, 53) - 1; local table = _tl_compat and _tl_compat.table or table; local _tl_table_unpack = unpack or table.unpack
+      local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = pcall(require, 'compat53.module'); if p then _tl_compat = m end end; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local _tl_math_mininteger = math.mininteger or -math.pow(2, 53) - 1; local table = _tl_compat and _tl_compat.table or table; local _tl_table_pack = table.pack or function(...) return { n = select("#", ...), ... } end; local _tl_table_unpack = unpack or table.unpack
       local t = { 1, 2, 3, 4 }
       print(_tl_table_unpack(t))
+      local t2 = _tl_table_pack(1, 2, "any")
       local n = 42
       local maxi = _tl_math_maxinteger
       local mini = _tl_math_mininteger
@@ -348,9 +351,10 @@ describe("tl gen", function()
    ]]
 
    local output_code_with_required_compat = [[
-      local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = true, require('compat53.module'); if p then _tl_compat = m end end; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local _tl_math_mininteger = math.mininteger or -math.pow(2, 53) - 1; local table = _tl_compat and _tl_compat.table or table; local _tl_table_unpack = unpack or table.unpack
+      local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = true, require('compat53.module'); if p then _tl_compat = m end end; local math = _tl_compat and _tl_compat.math or math; local _tl_math_maxinteger = math.maxinteger or math.pow(2, 53); local _tl_math_mininteger = math.mininteger or -math.pow(2, 53) - 1; local table = _tl_compat and _tl_compat.table or table; local _tl_table_pack = table.pack or function(...) return { n = select("#", ...), ... } end; local _tl_table_unpack = unpack or table.unpack
       local t = { 1, 2, 3, 4 }
       print(_tl_table_unpack(t))
+      local t2 = _tl_table_pack(1, 2, "any")
       local n = 42
       local maxi = _tl_math_maxinteger
       local mini = _tl_math_mininteger
@@ -403,5 +407,35 @@ describe("tl gen", function()
       it("adds compat53 insertions by default", function()
          run_gen_with_flag(finally, nil, output_code_with_optional_compat)
       end)
+   end)
+
+   it("generates code using pragma (regression test for #929)", function()
+      local name = util.write_tmp_file(finally, [[
+         --#pragma arity on
+         local record A
+         end
+
+         function A.hi()
+            print("hi")
+         end
+
+         return A
+      ]])
+      local pd = io.popen(util.tl_cmd("gen", name) .. " 2>&1 1>" .. util.os_null, "r")
+      local output = pd:read("*a")
+      util.assert_popen_close(0, pd:close())
+      assert.same("", output)
+      local lua_name = tl_to_lua(name)
+      util.assert_line_by_line([[
+
+         local A = {}
+
+
+         function A.hi()
+            print("hi")
+         end
+
+         return A
+      ]], util.read_file(lua_name))
    end)
 end)

@@ -1,3 +1,423 @@
+# 0.24.7
+
+2025-07-22
+
+Not a lot of changes in this release, but a few important ones! This release
+publishes some useful additions contributed to improve the tooling around
+the language. In the meantime, some major changes are being prepared for the
+next release series -- namely the implementation is being split from one big
+`tl.tl` file into modules, and a new API is in the works. But for now,
+the 0.24.7 keeps things progressing in the '24 series.
+
+This release features commits by Morgan Bartlett, @wu4, Miłosz Koczorowski
+and Hisham Muhammad.
+
+### API/Tooling
+
+* Collect and preserve comments in the AST for use by third-party tooling
+  * Lexer can now preserve comments (#1002)
+  * Parser can now attach comments to AST nodes (#1005)
+    * Parser can also preserve "unattached" top-level comments (#1007)
+* Better type information produced by TypeReporter:
+  * Metatable fields are included in TypeInfo
+  * Generic type arguments are included (#1020)
+
+### Fixes
+
+* Fix code generation by not propagating "needs compat code" marker across
+  module boundaries
+* Adjusted flow check behavior on multiple `if` branches: do not widen
+  back a type if it remains the same on scope exit (#904).
+* Better checks when long strings are used as table indices
+
+# 0.24.6
+
+2025-05-23
+
+Another good bugfix release, with a bunch of fixes reported and fixed by the
+community! I'm especially happy to welcome Morgan Bartlett as a committer;
+it's really good to be able to discuss the internals of the compiler in
+matters that affect both the implementation and the language behavior. The
+fixes and improvements for the `or` operator inference were a truly
+collaborative piece of work!
+
+This release features commits by @0komo, @wu4, Morgan Bartlett
+and Hisham Muhammad.
+
+### Language
+
+* Improved type inference for the `or` operator. Various subtle changes
+  to its behavior, but the end result is that the behavior should match
+  more closely what is intuitively desired. See the test cases in #983
+  for details.
+
+### Tooling
+
+* `-` can be used as an argument for reading from standard input
+  or writing into standard output
+* `tl completion`: new command for generating shell completions for
+  bash, zsh and fish.
+* `--wdisable` and `--werror` now reject invalid values
+
+### API
+
+* `tl.symbols_in_scope` now returns the inferred type at the requested
+  cursor position.
+
+### Fixes
+
+* API fixes:
+  * Type collection report fixes so that `tl.symbols_in_scope`
+    behaves correctly, returning types for the correct scope.
+
+* Fix "never read" warnings on specialized variables (#967).
+* Avoid accidentally matching interfaces to records structurally.
+* Do not crash when traversing an invalid type.
+* Fix handling of string escapes for Lua 5.1 targets (#977).
+* Fix a type leak in table literals (#965).
+
+# 0.24.5
+
+2025-05-05
+
+This is a big bugfix release! Almost all known bugs since 0.24.0 are now
+closed. It feels good to improve on the stability of Teal 0.24 before we start
+focusing on language changes for Teal 2025. At the same time, this release
+does include some new features, though mainly to make Teal 0.24 closer to what
+one would consider an ideal vision for Teal 2024, rather than introducing new
+concepts.
+
+This release features commits by Morgan Bartlett, François Perrad
+and Hisham Muhammad.
+
+## What's New
+
+### Language
+
+* Special-case type inference for various `string` functions:
+  `string.format`, `string.pack`, `string.unpack`, `string.find`,
+  `string.match`, `string.gsub`, `string.gmatch` (#946).
+* String metatable is resolved using the `string` module, which makes
+  it resilient to shadowing via `local string`.
+* Improved flow inference
+  * Preserve type narrowing/widening on all branches of an `if` statement,
+    including with constrained generics.
+  * `not` operator propagates a boolean context.
+* Disallow mixing `?` and `...` in argument declarations, making error
+  checks more consistent.
+* Improved standard library definitions
+  * `file:close` signature
+
+### API
+
+* if `tl.path` is set, this overrides `package.path` for Teal.
+
+### Tooling
+
+* Avoid confusing error messages like `got Foo, expected Foo` when
+  names refer to incompatible types with the same local names.
+
+### Fixes
+
+* Fix regression in support for macro expressions with generics (#941).
+* Avoid leakage of constrained type variables, by resolving constraints
+  when freshening type variables (#
+* Fixed inheritance order for covariant behavior of specialized
+  fields (#944).
+* Fixed syntax check for empty argument list in nested entries
+  such as `Foo<Bar<>>` (#958).
+* Generate code correctly when using pragma (#929).
+* Correct behavior of `...` in macro expressions (#940).
+* Correct behavior of optional arguments in macro expressions (#956).
+* Fixed escaping in error messages.
+* Let Lua sort the `package.loaded` table on its own (#922).
+* Do not try to resolve validity of unions too early (#903).
+* Ensure that union specialization with interface subtype produces
+  a valid type.
+* Do not infer type variables as boolean contexts.
+
+# 0.24.4
+
+2025-01-23
+
+Writing this changelog from the train, as the ICE approaches Berlin
+Südkreuz. More fixes to the generics system, tightening the type system
+in the presence of interfaces. I'd like to especially thank Steve
+Vermeulen, Michael Dowling and Corey Williamson for their bug reports,
+test cases and feedback on these issues, helping to get Teal 0.24 to a
+more stable shape.
+
+This release features commits by Pierre Chapuis, André L. Alvares and
+Hisham Muhammad.
+
+## What's New
+
+### Fixes
+
+* Fixed the resolution of type arguments in generics, especially
+  for function calls (#905, #908, #909, #910)
+* Fixed the resolution of the `__call` metamethod for generics.
+  (#904)
+* Fixed the subtype checking of generic records against generic
+  interfaces. (#859)
+* Fixed an error when matching against an undefined type.
+* Bumped the pinned compat53 dependency, which had a build issue
+  on Windows. (#916)
+
+# 0.24.3
+
+2025-01-12
+
+A minor bugfix release, thanks to feedback received upon the release
+of 0.24.2.
+
+This release features commits by Hisham Muhammad.
+
+## What's New
+
+### Fixes
+
+* Fixes code generation of nested generics that should not be elided (#902).
+* Fixes a regression in generic records with a __call metamethod (#901).
+* Record fields declared with self type were not being properly type checked
+  in table literals (#846).
+
+# 0.24.2
+
+2025-01-10
+
+Another bugfix release for Teal 0.24. We got more feedback, bug report,
+test cases.
+
+The good news is that the arity changes went very smoothly: no bug reports or
+complaints about that big change, really. The lack of feedback means that
+people must have adapted well to the new behavior, and that the pragma support
+and documentation on how to migrate was sufficient. A big win!
+
+The bad news is that the added complexity to the type system caused by the
+introduction of interfaces and the `self` type, have produced various bugs.
+Those came up especially due to the interactions between interfaces, the
+`self` type and generics. Most bugs were fixed for this release, but not all.
+
+This release features commits by Pierre Chapuis, JR Mitchell, Corey Williamson,
+@FourierTransformer, @FractalU and Hisham Muhammad.
+
+## What's New
+
+### Language
+
+* `record` declarations nested inside `interface` declarations are no
+  longer allowed; allowing a concrete object inside an abstract object
+  was an oversight.
+* Relational operators on aliases to comparable types now correctly return
+  boolean
+* Nominal function types can now be used as type variable constraints.
+* Improved standard library definitions
+  * `io.input` and `io.output` types
+  * `string.find`
+
+### Tooling
+
+* Compiler now produces warnings for unread variables.
+
+### Fixes
+
+* Record fields inherited from interfaces now resolve `self` on declaration
+  (#877).
+* Fixes parsing of `.lua` files, respecting Lua heuristics for function calls
+  across multiple lines.
+* Fixes a syntax error with `return;` is not the last statement of a
+  block (#893).
+* Eager resolution of unused type arguments (#881).
+  * Nested generic type aliases work with eager resolution (#888).
+* Fixes support for generics on array types (#880).
+* Fixes support for generic unions (#787).
+* Check if number of types in declaration exceeds number of variables (#868).
+* API fixes:
+  * `tl.get_types` reports all inherited interface fields
+  * reports `self` symbol in methods
+* Internal Compiler Error when declaring an invalid union in a function arg
+  in a field (#856)
+* Crash on a `for` loop that explicitly uses `next` and an unknown variable.
+* Stack overflow when a nested interface extends its parent interface.
+* Error messages for `>` no longer have its operands flipped
+* Fix: do not get file names and locations out-of-sync when compiling multiple
+  files.
+* CLI: compatibility fix for Windows.
+
+# 0.24.1
+
+2024-10-25
+
+A bugfix release for Teal 0.24. Several fixes that bring the implementation
+closer to the vision of what the 2024 edition is intended to be, thanks to
+the invaluable feedback of the user community!
+
+This release features commits by François Perrad, Steve Vermeulen and
+Hisham Muhammad.
+
+## What's New
+
+### Language
+
+* Standard library
+  * Improved signatures for `math.frexp` and `math.ldexp`
+
+### Fixes
+
+As expected, fixes are mainly related to the new features introduced in Teal
+0.24:
+
+* Better handling of abstract vs. concrete types
+  * Fixed subtyping and casting checks for records vs. interfaces (#830).
+  * Disallow passing non-record types as arguments (#813).
+  * Allow interface instances to be required concretely
+  * Always elide abstract types from generated code
+* Fixes for improved type inference
+  * Fixed type inference for `is x == nil or ...` (#823).
+  * Resolve type parameter in `setmetatable` using nested records (#772).
+  * Ignore non-literal booleans in table key declarations (#816).
+  * Type variables from function results also resolve arguments (#838).
+  * Do not mistake missing optional argument for a vararg.
+* Improved code generation
+  * Generate `__is`-aware code for `is` on unions (#742).
+  * Handles metamethod for `__eq` (#814).
+* Fixes for `self` type
+  * Fixed a nil reference exception (#824).
+  * Corrected resolution of `self` in methods (#812).
+
+# 0.24.0 - Teal Spring '24
+
+2024-10-07
+
+This a big release! Teal 0.24.0, codenamed "Teal Spring '24" as a nod to
+the coolest language release name ever ("Clipper Summer '87"), is a
+culmination of work that has spanned multiple years, and it would not be
+possible without the amazing feedback given by the community on the `next`
+branch, where this was developed. This release does include that "lot of
+new code" that I wanted to merge in the "near future", which I referred
+to in the changelog entry for the previous release. It is nice to see it
+all coming together!
+
+The main feature is the addition of interfaces, which introduces a model for
+subtyping table types in the language. That should allow for representing the
+various kinds of object models that are used across the Lua ecosystem, without
+promoting any particular class/object system over the others. Most of the
+other changes, such as macro expressions, came along as related features built
+to support this. The support for optional argument markers is a stop towards
+stricter type safety, and the addition of pragma markers to control this
+feature is a statement of intent for allowing gradual transitions as the
+language evolves. All in all, the goal is to make the 2024 edition of Teal
+a safer and more pleasant language to use.
+
+And yes, an October release is called Spring because it is now spring in
+the southern hemisphere. :)
+
+This release features commits by François Perrad, Victor Ilchev and Hisham
+Muhammad.
+
+## What's New
+
+### Language
+
+* **Interfaces**: you can now declare abstract interfaces, and record types
+  can implement them. This allows you to declare subtyping relations, and
+  better support inheritance models (e.g. `local record Circle is Shape`).
+  * Records and interfaces may declare a `where` clause with an expression
+    over `self`, which allows the `is` operator to discriminate the type.
+  * With discriminated record types, it is now possible to declare unions
+    over multiple record types.
+  * "Arrayrecords" are no longer a distinct type: they are just records
+    that implement an array interface (e.g. `local record R is {T}`)
+  * Type variables in functions can now have constraints on interfaces
+    (e.g. `function my_func<F is MyInterface>(...)`)
+  * `self` is now a valid type that can be used when declaring arguments
+    in functions declared in interfaces and records
+    * When a record is declared to be a subtype of an interface using `is`,
+      any function arguments using `self` in the parent interface type will
+      then resolve to the child record's type.
+* **Optional/required arguments in function calls** - functions may declare
+  arguments as optional, affecting the required arity of function calls.
+  The rightmost arguments of a function can have their variable names
+  annotated with a `?` sign, indicating that the argument does not need
+  to be passed in a function call. This refers only to the presence of the
+  argument in a call, and not to its type or nullability: a required
+  argument may still be called with an explicit `null`, but an optional
+  argument may be elided.
+  * In previous versions of Teal, all function arguments were effectively
+    optional. This means that Teal is now stricter which checking for
+    function calls. You can use `--feat-arity=off` in the command line
+    or `feat_arity = "off"` in `tlconfig.lua` to obtain the previous
+    behavior.
+  * To convert code that uses the old arity checking rules to the new
+    behavior, you can also use compiler pragmas in the code,
+    `--#pragma arity off` and `--#pragma arity off` to disable or enable
+    stricter arity checks.
+* **Macro expressions**: you can declare a restricted form of function called
+  a `macroexp`, which is always expanded inline. These can also be used
+  to declare compile-time metamethods, which expand without requiring
+  a metatable at runtime. The `where` clauses used in interfaces and
+  records are syntax sugar for macro expressions that implement a
+  pseudo-metamethod `__is`.
+* Dynamic `require` calls that do not take a module name as a literal
+  string are now allowed, and return `any`; you can load a static type
+  definition using `local type MyType = require("...")` and then cast
+  your dynamic require like so: `local my_mod = require(var) as MyType`
+* The type system is more nominal: all named types are now treated nominally,
+  except for unions, which are always type aliases. Previously record types
+  were nominal, but a named typed that resolved to a primitive such as
+  `integer` was structural. There are still subleties on the rules for when
+  a `local type` produces a new distinct type or an alias; they are
+  [explained in the docs](docs/aliasing.md).
+* The `<total>` attribute for variables can now only be applied when
+  initializing variables with literal tables. This is a minor breaking change,
+  but the usefulness of this attribute in other cases was very limited,
+  and it also produced misleading results.
+* Improved type signatures in the standard library
+  * `select` produces variadic returns
+
+### API
+
+* Simplified API in the `tl` module.
+  * The 0.15 API is still supported for backwards compatibility.
+
+### Tooling
+
+* `tl build` was removed. [Cyan](https://github.com/teal-language/cyan)
+  should be used instead as the build tool for Teal projects.
+
+### Fixes
+
+* Fix commits included in this release refer both to bugs present
+  in the `master` branch as well as fixes specific to the 0.24 series,
+  reported by the community during the beta testing of this release.
+  The Git history and the GitHub issues list contain a more detailed
+  accounting of the bugfixes that went into this release.
+  Some of the fixes include:
+  * `tl check` now reports if the input file does not exist.
+  * Reporting location of the end of an `if` block correctly.
+  * No longer crash if a `require()` epression fails to resolve (#778).
+  * `tl types` now reports the types of variables in `for` loops.
+  * Improved error message when calling functions with insufficient
+    arguments.
+  * Disallowing using a base type as a type variable name.
+  * Type arguments resolving correctly in recursive functions.
+  * Type arguments resolving correctly in nested records (#754).
+  * `or` type inference between types with a subtyping relation
+    resolves to whichever is the larger type.
+  * Reporting an error if an iterator used in a generic `for` does not
+    declare a return value type (#736).
+  * When checking `<total>` values, no longer reporting record
+    function and metamethods as missing fields (#749).
+  * Localizing a record no longer makes the local a type (#759).
+  * Bad assignments of record tables are reported (#752).
+  * Nominal type alias declarations work as expected (#238).
+  * Nominals with generics can be resolved correcty (#777).
+  * Nested types are not closed too early (#775).
+  * Not failing when resolving nested empty tables.
+  * Exporting generics and type aliases from modules correctly
+    using `return` at the toplevel (#804).
+
 # 0.15.3
 
 2023-11-05
@@ -111,7 +531,7 @@ and Hisham Muhammad.
 2023-01-23
 
 A minor bugfix release, thanks to feedback received upon the release
-of 0.15.03
+of 0.15.0.
 
 This release features commits by Hisham Muhammad.
 

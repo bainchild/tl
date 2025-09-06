@@ -3,6 +3,14 @@ local util = require("spec.util")
 
 describe("tl check", function()
    describe("on .tl files", function()
+      it("reports if file does not exist", function()
+         local pd = io.popen(util.tl_cmd("check", "file_that_does_not_exist.tl") .. " 2>&1", "r")
+         local output = pd:read("*a")
+         util.assert_popen_close(1, pd:close())
+         assert.match("could not open file_that_does_not_exist.tl", output, 1, true)
+      end)
+
+
       it("works on empty files", function()
          local name = util.write_tmp_file(finally, [[]])
          local pd = io.popen(util.tl_cmd("check", name), "r")
@@ -20,6 +28,20 @@ describe("tl check", function()
             print(add(10, 20))
          ]])
          local pd = io.popen(util.tl_cmd("check", name), "r")
+         local output = pd:read("*a")
+         util.assert_popen_close(0, pd:close())
+         assert.match("0 errors detected", output, 1, true)
+      end)
+
+      it("works if TL_DEBUG is set", function()
+         local name = util.write_tmp_file(finally, [[
+            local function add(a: number, b: number): number
+               return a + b
+            end
+
+            print(add(10, 20))
+         ]])
+         local pd = io.popen(util.os_set("TL_DEBUG", "1") .. util.os_join .. util.tl_cmd("check", name) .. " 2>" .. util.os_null, "r")
          local output = pd:read("*a")
          util.assert_popen_close(0, pd:close())
          assert.match("0 errors detected", output, 1, true)
