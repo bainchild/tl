@@ -539,6 +539,7 @@ local record tl
       "5.1"
       "5.3"
       "5.4"
+      "U"
    end
 
    enum Feat
@@ -846,9 +847,9 @@ end
 --------------------------------------------------------------------------------
 -- Compiler debugging
 --------------------------------------------------------------------------------
-
-local TL_DEBUG = os.getenv("TL_DEBUG")
-local TL_DEBUG_FACTS = os.getenv("TL_DEBUG_FACTS")
+local os_getenv: function(string):(string|nil) = os.getenv or function(s: string):(string|nil)s=s;return nil end
+local TL_DEBUG = os_getenv("TL_DEBUG")
+local TL_DEBUG_FACTS = os_getenv("TL_DEBUG_FACTS")
 local TL_DEBUG_MAXLINE = math.maxinteger
 
 if TL_DEBUG_FACTS and not TL_DEBUG then
@@ -5502,7 +5503,37 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
       return table.concat(out)
    end
 
-   local function print_record_def(typ: RecordLikeType): string
+   -- todo: combine this and print_record_def, or split them at the call for luau/others
+   local function convert_to_luau_type(typ: Type,stack: {TypeName}): string
+      for _,name in ipairs(stack) do if typ.typename == name then return "unknown" end end
+      if typ is RecordType then
+         table.insert(stack, 1, typ.typename)
+         local out: {string} = { "{" }
+         local i = 0
+         for fname, ftype in fields_of(typ) do
+            if ftype.typename ~= typ.typename then
+               if i > 0 then
+                  table.insert(out, ",")
+               end
+               i = i + 1
+               table.insert(out, " ")
+               table.insert(out, fname)
+               table.insert(out, ": ")
+               table.insert(out, convert_to_luau_type(ftype,stack))
+            end
+         end
+         table.remove(stack, 1)
+         table.insert(out, "}")
+         return table.concat(out)
+      end
+      if typ is NominalType and (typ.resolved == nil or typ.typename ~= typ.resolved.typename) then
+         return typ.resolved and convert_to_luau_type(typ.resolved,stack) or "unknown"
+      end
+      if typ.typename=="integer" then return "number" end
+      return typ.typename
+   end
+
+   local function print_record_def(typ: RecordLikeType, gen_u: boolean): string
       local out: {string} = { "{" }
       local i = 0
       for fname, ftype in fields_of(typ) do
@@ -5518,8 +5549,27 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
                i = i + 1
                table.insert(out, " ")
                table.insert(out, fname)
-               table.insert(out, " = ")
-               table.insert(out, print_record_def(def))
+               if gen_u then
+                  table.insert(out, ": ")
+               else
+                  table.insert(out, " = ")
+               end
+               table.insert(out, print_record_def(def,gen_u))
+            end
+         elseif gen_u and (ftype is ArrayLikeType or ftype is StringType or ftype is NumericType or ftype is BooleanType) then
+            if i > 0 then
+               table.insert(out, ",")
+            end
+            i = i + 1
+            table.insert(out, " ")
+            table.insert(out, fname)
+            table.insert(out, ": ")
+            if ftype is ArrayLikeType then
+               table.insert(out, "{")
+               table.insert(out, convert_to_luau_type(ftype.elements,{}))
+               table.insert(out, "}")
+            elseif ftype is StringType or ftype is NumericType or ftype is BooleanType then
+               table.insert(out, convert_to_luau_type(ftype,{}))
             end
          end
       end
@@ -5611,10 +5661,17 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
             if not node.var.elide_type then
+               -- if gen_target == "U" then
+               --    table.insert(out, "type")
+               --    add_child(out, children[1], " ")
+               --    table.insert(out, " =")
+               --    add_child(out, children[2], " ")
+               -- else
                table.insert(out, "local")
                add_child(out, children[1], " ")
                table.insert(out, " =")
                add_child(out, children[2], " ")
+               -- end
             end
             return out
          end,
@@ -5623,6 +5680,9 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
          after = function(_: nil, node: Node, children: {Output}): Output
             local out: Output = { y = node.y, h = 0 }
             if children[2] then
+               -- if gen_target == "U" then
+               --    table.insert(out, "export type ")
+               -- end
                add_child(out, children[1])
                table.insert(out, " =")
                add_child(out, children[2], " ")
@@ -5979,7 +6039,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             if nt is TypeDeclType then
                local def = nt.def
                if def is RecordLikeType then
-                  table.insert(out, print_record_def(def))
+                  table.insert(out, print_record_def(def,false))--gen_target == "U"))
                elseif def is NominalType then
                   table.insert(out, table.concat(def.names, "."))
                else
@@ -6014,7 +6074,7 @@ function tl.generate(ast: tl.Node, gen_target: GenTarget, opts?: GenerateOptions
             --  - \xXX : hex byte
             --  - \u{} : unicode
 
-            if node.tk:sub(1, 1) == "[" or gen_target ~= "5.1" or not node.tk:find("\\", 1, true) then
+            if node.tk:sub(1, 1) == "[" or (gen_target ~= "5.1" and gen_target ~= "U") or not node.tk:find("\\", 1, true) then
                return emit_exactly(nil, node, children)
             end
 
@@ -7413,7 +7473,7 @@ tl.search_module = function(module_name: string, search_all: boolean): string, F
    local found: string
    local fd: FILE
    local tried: {string} = {}
-   local path = os.getenv("TL_PATH") or tl.path or package.path
+   local path = os_getenv("TL_PATH") or tl.path or package.path
    if search_all then
       found, fd, tried = search_for(module_name, ".d.tl", path, tried)
       if found then
@@ -7472,7 +7532,7 @@ end
 
 local compat_code_cache: {string:Node} = {}
 
-local function add_compat_entries(program: Node, used_set: {string: boolean}, gen_compat: GenCompat)
+local function add_compat_entries(program: Node, used_set: {string: boolean}, gen_compat: GenCompat, gen_target: GenTarget)
    if gen_compat == "off" or not next(used_set) then
       return
    end
@@ -7521,7 +7581,7 @@ local function add_compat_entries(program: Node, used_set: {string: boolean}, ge
          load_code(name, "local _tl_math_mininteger = math.mininteger or -math.pow(2,53) - 1")
       elseif name == "type" then
          load_code(name, "local type = type")
-      else
+      elseif gen_target ~= "U" then
          if not compat_loaded then
             load_code("compat", "local _tl_compat; if (tonumber((_VERSION or ''):match('[%d.]*$')) or 0) < 5.3 then local p, m = " .. req("compat53.module") .. "; if p then _tl_compat = m end")
             compat_loaded = true
@@ -14129,7 +14189,7 @@ do
                   end
                end
 
-               if node.op.op == "~" and self.gen_target == "5.1" then
+               if node.op.op == "~" and (self.gen_target == "5.1" or self.gen_target == "U") then
                   if meta_on_operator then
                      self.all_needs_compat["mt"] = true
                      convert_node_to_compat_mt_call(node, unop_to_metamethod[node.op.op], 1, node.e1)
@@ -14198,7 +14258,7 @@ do
                   node.known = FACT_TRUTHY
                end
 
-               if node.op.op == "//" and self.gen_target == "5.1" then
+               if node.op.op == "//" and (self.gen_target == "5.1" or self.gen_target == "U") then
                   if meta_on_operator then
                      self.all_needs_compat["mt"] = true
                      convert_node_to_compat_mt_call(node, "__idiv", meta_on_operator, node.e1, node.e2)
@@ -14206,7 +14266,7 @@ do
                      local div: Node = node_at(node, { kind = "op", op = an_operator(node, 2, "/"), e1 = node.e1, e2 = node.e2 })
                      convert_node_to_compat_call(node, "math", "floor", div)
                   end
-               elseif bit_operators[node.op.op] and self.gen_target == "5.1" then
+               elseif bit_operators[node.op.op] and (self.gen_target == "5.1" or self.gen_target == "U") then
                   if meta_on_operator then
                      self.all_needs_compat["mt"] = true
                      convert_node_to_compat_mt_call(node, binop_to_metamethod[node.op.op], meta_on_operator, node.e1, node.e2)
@@ -14947,7 +15007,7 @@ do
 
       clear_redundant_errors(self.errs.errors)
 
-      add_compat_entries(ast, self.all_needs_compat, self.gen_compat)
+      add_compat_entries(ast, self.all_needs_compat, self.gen_compat, self.gen_target)
 
       local result = {
          ast = ast,
@@ -15040,6 +15100,8 @@ function tl.target_from_lua_version(str: string): GenTarget
       return "5.3"
    elseif str == "Lua 5.4" then
       return "5.4"
+   elseif str:sub(1,5) == "Luau " then
+      return "U"
    end
 end
 
@@ -15230,6 +15292,7 @@ tl.init_env = function(lax?: boolean, gen_compat?: boolean | GenCompat, gen_targ
                        (gen_compat == false and "off") or
                        (gen_compat == true or gen_compat == nil) and "optional",
          gen_target = gen_target or
+                      (_VERSION:sub(1,5) == "Luau " and "U") or
                       ((_VERSION == "Lua 5.1" or _VERSION == "Lua 5.2") and "5.1") or
                       "5.3",
       },
